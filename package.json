@@ -1,0 +1,28 @@
+{
+  "name": "graylog-plugin-gcp-pubsub",
+  "version": "1.2.0",
+  "description": "Graylog input plugin for Google Cloud Pub/Sub",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emkds1729/graylog-plugin-gcp-pubsub"
+  },
+  "scripts": {
+    "build": "webpack",
+    "lint": "eslint src",
+    "lint:path": "eslint",
+    "test": "jest"
+  },
+  "keywords": [
+    "graylog"
+  ],
+  "author": "Keith Sprochi <ksprochi@elementalmachines.com>",
+  "license": "Apache-2.0",
+  "eslintConfig": {
+    "extends": "graylog"
+  },
+  "dependencies": {
+  },
+  "devDependencies": {
+    "graylog-web-plugin": "file:../graylog2-server/graylog2-web-interface/packages/graylog-web-plugin"
+  }
+}

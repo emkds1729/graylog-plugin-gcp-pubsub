@@ -1,0 +1,33 @@
+# Build artifacts
+target/
+*.jar
+*.war
+*.ear
+*.class
+*.deb
+*.rpm
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Node modules
+node_modules/
+node/
+yarn.lock
+package-lock.json
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+dependency-reduced-pom.xml
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
