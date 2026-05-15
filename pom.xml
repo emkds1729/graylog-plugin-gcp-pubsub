@@ -29,7 +29,7 @@
 
     <groupId>org.graylog.plugins</groupId>
     <artifactId>graylog-plugin-gcp-pubsub</artifactId>
-    <version>1.2.0</version>
+    <version>1.2.1</version>
     <packaging>jar</packaging>
 
     <name>${project.artifactId}</name>
