@@ -3,8 +3,13 @@ package org.graylog.plugins.gcppubsub;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -214,6 +219,8 @@ public class GcpPubSubLogRetriever {
     private static final Logger LOG = LoggerFactory.getLogger(GcpPubSubLogRetrieverThread.class);
     private static final int MAX_PAYLOAD_LENGTH = 32767;
     private static final int TRUNCATED_PAYLOAD_LENGTH = 1024;
+    private static final DateTimeFormatter GRAYLOG_TIMESTAMP_FORMAT =
+        DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSS", Locale.ROOT).withZone(ZoneOffset.UTC);
 
     private final int tid = hashCode();
     private ReceivedMessage receivedMessage;
@@ -268,6 +275,24 @@ public class GcpPubSubLogRetriever {
       return str;
     }
 
+    static void normalizeTimestamp(JSONObject json) {
+      if (!json.has("timestamp")) {
+        return;
+      }
+      Object value = json.get("timestamp");
+      String raw = value == null ? null : value.toString();
+      if (raw == null || raw.isEmpty()) {
+        return;
+      }
+      try {
+        OffsetDateTime odt = OffsetDateTime.parse(raw);
+        json.put("timestamp", GRAYLOG_TIMESTAMP_FORMAT.format(odt.toInstant()));
+      } catch (DateTimeParseException e) {
+        json.remove("timestamp");
+        LOG.warn("Unparseable timestamp <{}> from Pub/Sub message; field removed so Graylog will use receive time: {}", raw, e.getMessage());
+      }
+    }
+
     @Override
     public void run() {
       try {
@@ -275,6 +300,7 @@ public class GcpPubSubLogRetriever {
         data = pubsubMessage.getData();
 
         JSONObject json = sanitizeKeys(new JSONObject(data.toStringUtf8()));
+        normalizeTimestamp(json);
         Set<String> jsonKeys = json.keySet();
 
         if (jsonKeys.contains("textPayload")) {
