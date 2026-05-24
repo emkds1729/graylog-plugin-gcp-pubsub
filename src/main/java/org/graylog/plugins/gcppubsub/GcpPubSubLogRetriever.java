@@ -15,6 +15,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.graylog2.plugin.configuration.Configuration;
 import org.graylog2.plugin.inputs.MessageInput;
@@ -38,9 +40,9 @@ public class GcpPubSubLogRetriever {
 
   private static final Logger LOG = LoggerFactory.getLogger(GcpPubSubLogRetriever.class);
 
-  public static final int    BATCH_SIZE       = 1000;
-  public static final int    MAX_MESSAGE_SIZE = 1024 * 1024 * 10;
-  public static final int    NAP_TIME         = 50;
+  public static final int BATCH_SIZE       = 1000;
+  public static final int MAX_MESSAGE_SIZE = 1024 * 1024 * 10;
+  public static final int NAP_TIME         = 50;
 
   private Configuration configuration;
   private MessageInput messageInput;
@@ -237,42 +239,29 @@ public class GcpPubSubLogRetriever {
       this.messageInput = messageInput;
     }
 
-    public JSONObject sanitizeKeys(JSONObject json) {
+    // Matches a JSON key: a double-quoted string immediately followed by optional
+    // whitespace and a colon. The escape-aware character class skips over
+    // embedded \" and other backslash escapes so it does not false-match keys
+    // inside value strings.
+    private static final Pattern KEY_PATTERN = Pattern.compile("\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"\\s*:");
 
-      Set<String> jsonKeys = json.keySet();
-
-      boolean ok = true;
-      for (String key : jsonKeys) {
-        if (key.matches(".*[/\\(\\)].*")) ok = false;
-        break;
-      }
-      if (ok) return json;
-
-      JSONObject clone= new JSONObject(json.toMap());
-
-      for (String key : jsonKeys) {
-        String newKey = key;
-        if (key.matches(".*/.*"))   newKey = newKey.replaceAll("/", ".");
-        if (key.matches(".*\\(.*")) newKey = newKey.replaceAll("[(]", "");
-        if (key.matches(".*\\).*")) newKey = newKey.replaceAll("[)]", "");
-        if (!key.equals(newKey)) {
-          for (int attempts=0; attempts < 25; attempts++) {
-            if (jsonKeys.contains(newKey)) {
-              newKey += "." + Integer.toString(attempts);
-              continue;
-            }
-          }
-          clone.put(newKey, json.get(key));
-          clone.remove(key);
+    public String sanitizeKeys(String jsonStr) {
+      Matcher m = KEY_PATTERN.matcher(jsonStr);
+      StringBuilder out = new StringBuilder(jsonStr.length());
+      while (m.find()) {
+        String key = m.group(1);
+        String cleanKey = key;
+        if (cleanKey.indexOf('/') >= 0) cleanKey = cleanKey.replace('/', '.');
+        if (cleanKey.indexOf('(') >= 0) cleanKey = cleanKey.replace("(", "");
+        if (cleanKey.indexOf(')') >= 0) cleanKey = cleanKey.replace(")", "");
+        if (cleanKey.equals(key)) {
+          m.appendReplacement(out, Matcher.quoteReplacement(m.group()));
+        } else {
+          m.appendReplacement(out, Matcher.quoteReplacement("\"" + cleanKey + "\":"));
         }
       }
-      return clone;
-    }
-
-    public String sanitize(String strArg) {
-      String str = strArg.replaceAll("/", "-");
-      str = str.replaceAll("\\$", "");
-      return str;
+      m.appendTail(out);
+      return out.toString();
     }
 
     static void normalizeTimestamp(JSONObject json) {
@@ -299,7 +288,7 @@ public class GcpPubSubLogRetriever {
         pubsubMessage = receivedMessage.getMessage();
         data = pubsubMessage.getData();
 
-        JSONObject json = sanitizeKeys(new JSONObject(data.toStringUtf8()));
+        JSONObject json = new JSONObject(sanitizeKeys(data.toStringUtf8()));
         normalizeTimestamp(json);
         Set<String> jsonKeys = json.keySet();
 
@@ -319,7 +308,7 @@ public class GcpPubSubLogRetriever {
           }
         }
 
-        messageInput.processRawMessage(new RawMessage(sanitize(json.toString()).getBytes("UTF-8")));
+        messageInput.processRawMessage(new RawMessage(json.toString().getBytes("UTF-8")));
 
       } catch (Exception e) {
 
