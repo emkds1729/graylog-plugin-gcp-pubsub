@@ -65,6 +65,11 @@ public class GcpPubSubTopicReader implements Callable<PullRequest> {
     if (pullRequest == null) return new ArrayList<>();
     PullResponse pullResponse = subscriber.pullCallable().call(pullRequest);
     List<ReceivedMessage> messageList = pullResponse.getReceivedMessagesList();
+    // An empty pull has no ack IDs; calling ModifyAckDeadline (or ack) with an
+    // empty list triggers INVALID_ARGUMENT "You have not specified an ack ID".
+    if (messageList.isEmpty()) {
+      return messageList;
+    }
     List<String> ackIds = ackIdsFromMessages(messageList);
     ModifyAckDeadlineRequest modifyRequest = ModifyAckDeadlineRequest.newBuilder().setSubscription(subscriptionName).addAllAckIds(ackIds).setAckDeadlineSeconds(60).build();
     if (modifyRequest == null) {
