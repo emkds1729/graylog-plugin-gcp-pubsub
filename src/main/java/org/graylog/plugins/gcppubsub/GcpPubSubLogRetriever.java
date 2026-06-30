@@ -40,9 +40,15 @@ public class GcpPubSubLogRetriever {
 
   private static final Logger LOG = LoggerFactory.getLogger(GcpPubSubLogRetriever.class);
 
-  public static final int BATCH_SIZE       = 1000;
+  public static final int BATCH_SIZE       = 250;
   public static final int MAX_MESSAGE_SIZE = 1024 * 1024 * 10;
   public static final int NAP_TIME         = 50;
+
+  // On a failed batch, back off exponentially from NAP_TIME instead of retrying
+  // with zero delay, which previously turned a persistently-failing pull into a
+  // CPU-bound hot loop. Capped at MAX_BACKOFF_MS; reset to NAP_TIME on success.
+  public static final long MAX_BACKOFF_MS    = 30_000L;
+  private static final int MAX_BACKOFF_SHIFT = 16;
 
   private Configuration configuration;
   private MessageInput messageInput;
@@ -139,8 +145,10 @@ public class GcpPubSubLogRetriever {
 
     long processedBatchCount = 1;
     long tally = 0;
+    int consecutiveErrors = 0;
 
     while (!shouldStop && !pool.isTerminated()) {
+      long sleepMs = NAP_TIME;
       try {
 
         long t0 = System.currentTimeMillis();
@@ -157,10 +165,22 @@ public class GcpPubSubLogRetriever {
         if (processedBatchCount > Long.MAX_VALUE-2) processedBatchCount = 0;
         ++processedBatchCount;
 
-        Thread.sleep(NAP_TIME);
+        consecutiveErrors = 0;
 
       } catch (Exception e) {
         LOG.error("GcpPubSubLogRetriever::processBatches: caught Exception ->" + e);
+        consecutiveErrors++;
+        long backoff = NAP_TIME * (1L << Math.min(consecutiveErrors, MAX_BACKOFF_SHIFT));
+        sleepMs = Math.min(backoff, MAX_BACKOFF_MS);
+      }
+
+      // Always pause between iterations — including after a failure — so a
+      // persistently-failing pull backs off instead of spinning the CPU.
+      try {
+        Thread.sleep(sleepMs);
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        break;
       }
     }
     LOG.warn("Executor pool has been terminated unexpectedly");
